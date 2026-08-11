@@ -1,5 +1,7 @@
 # Replacement PCB for Wallace High Low Level Alarm (1950610)
 
+[![High/Low Level Alarm](https://dlmwallace.co.nz/cdn/shop/files/HighLowLevelAlarm.png?v=1739752295)](https://dlmwallace.co.nz/products/high-low-level-alarm)
+
 Basic Arduino controlled replacement PCB for Wallace High Low Level Alarm (1950610): watch FLOAT_SW, flash four LEDs at 2 Hz while it is high, sound
 a 4 kHz piezo once it has been high for 5 seconds, and drive the pump relay
 on CN2-4.
@@ -8,6 +10,8 @@ This board allows replacement of a failed PCB since the alarm unit retails for $
 
 **28 components, 20 BOM lines.** One 8-pin microcontroller (ATtiny202 —
 bench stock) replaces every timer, oscillator and delay circuit on the existing discrete circuit design.
+
+![3D render of the replacement PCB](3d-pcb.png)
 
 ## 1. Scope and constraints
 
@@ -84,12 +88,12 @@ fit a passive piezo and it's not needed.
  CN2-1/2 GND ────── board GND plane             └──────────────┘
 ```
 
+![Schematic](schematic.png)
+
 ## 4. Power — L7805CV linear regulator (bench stock)
 
-An earlier revision used a zener shunt to save parts; the L7805CV costs
-one extra resistor beyond the same three BOM lines (reg + two caps),
-gives a solid regulated rail, and deletes every tolerance-stacking worry
-the zener had.
+The L7805CV gives a solid regulated rail from the same three BOM lines
+(reg + two caps) plus one extra resistor.
 
 ```
 CN2-3 ──┬───▶ IN   U1 L7805CV   OUT ──┬──────┬───▶ VDD (5.0 V)
@@ -118,8 +122,7 @@ repo):
     so the input bypass is required — and §6.1 specifies its type: 0.33 µF
     or larger with **"low internal impedance at high frequencies"**,
     mounted directly at the IN pin. That means ceramic/film — an aluminum
-    electrolytic fails this requirement, which is why the bench-stock 22 µF
-    was dropped. C1 = 1 µF X7R at the pin.
+    electrolytic fails this requirement. C1 = 1 µF X7R at the pin.
   - *Output* (C2): not needed for stability at all — the 7805 is internally
     compensated (*"no output capacitor is needed for stability, but it does
     improve transient response"*, §6.1 Figure 8). C2 = 1 µF X7R at the
@@ -267,8 +270,7 @@ hence the level shifter. Lifted from the original design's §6:
   float during reset, brownout and UPDI programming; R9 holds Q3's gate low
   so **the relay cannot energise until firmware runs**. (The LED string and
   piezo get away without pull-downs; a pump does not.)
-- **Q4 spec is uncritical** — this stage originally specced a DMP2045U
-  P-FET with a ±20 V gate rating; a PNP has no such constraint. The SS8550
+- **Q4 spec is uncritical** — the SS8550
   (−25 V, −1.5 A) has huge margin; any small PNP with **I_C ≥ 200 mA and
   V_CEO ≥ 25 V** substitutes (BC327, 2N2907, BC807, 2N3906).
 - **D1** is the coil flyback diode. The coil hangs between CN2-4 and
@@ -397,6 +399,12 @@ loop_every_1ms() {
 
 **28 components** (plus 4 grounded M3 mounting holes). External: passive
 4 kHz piezo element on CN1, relay on CN2-4.
+
+## PCB layout
+
+![Top PCB](top-pcb.png)
+
+![Bottom PCB](bottom-pcb.png)
 
 ## 14. Bring-up checklist
 
