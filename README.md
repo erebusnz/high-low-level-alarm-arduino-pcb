@@ -431,3 +431,14 @@ loop_every_1ms() {
 8. Hold the float high and power-cycle / reset: **neither the relay nor the
    piezo may twitch during reset.** This is the test that matters.
 
+## 15. License
+
+This project is open hardware — all design files, firmware, and documentation
+are licensed under the **CERN Open Hardware Licence Version 2 — Weakly
+Reciprocal (CERN-OHL-W-2.0)**. See [LICENSE](LICENSE) for the full text.
+
+You are free to use, study, modify, and distribute this design, and to make
+and sell products based on it. If you release modified versions, you must make
+your changes available under the same licence. If you sell products, you must
+provide the Complete Source (everything needed to reproduce the design) to
+each recipient.
