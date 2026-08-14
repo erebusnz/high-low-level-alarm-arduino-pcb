@@ -74,7 +74,7 @@ fit a passive piezo and it's not needed.
                      base ├── emitter ── +12V   │              │
                           │   collector ─┬▶CN2-4│              │
                        R7 2.2k           │      │              │
-              Q3 2N7002 ──┤        D1 SS14 ▶GND │              │
+              Q3 2N7002 ──┤   GND ▶|── D1 SS14  │              │
               (drain)     │                     │              │
               gate ◀──────┼─────────────────────┤ PA2          │
               (R9 10k ▼ GND, source ── GND)     │              │
@@ -277,6 +277,9 @@ hence the level shifter. Lifted from the original design's §6:
   external GND, so a diode from GND (anode) to CN2-4 (cathode) is
   electrically across the coil: when Q4 opens, the coil pulls CN2-4 negative
   and D1 catches it at −0.4 V.
+  **Get this orientation right — it is not a "wrong polarity, no clamp"
+  failure.** Reversed, D1 is a forward diode from Q4's collector to ground:
+  the first time the relay engages it shorts the 12 V rail and destroys Q4.
 - Coil current (~40 mA for a typical 12 V relay) comes straight off the
   12 V entry — size that trace accordingly; it never touches the regulator.
 
@@ -389,7 +392,7 @@ loop_every_1ms() {
 | R9 | 10 kΩ | 0805 | Q3 gate pull-down — **relay boot safety** |
 | Q1, Q2, Q3 | 2N7002 | SOT-23 | Q1 LED string, Q2 piezo driver, Q3 relay level shift |
 | Q4 | SS8550, marking "2TY" (bench stock) | SOT-23 | PNP, −25 V / −1.5 A. Pin 1=B, 2=E→12 V, 3=C→CN2-4. Any PNP ≥200 mA/25 V substitutes |
-| D1 | SS14 | SMA | Relay coil flyback |
+| D1 | SS14 | SMA | Relay coil flyback. **Cathode band toward CN2-4** — reversed, it shorts the 12 V rail and kills Q4 |
 | LED1 | Red 5 mm (XL-502SURC) | THT | Power indicator — on 12 V, see §6 |
 | LED2–LED5 | Red 5 mm ×4 | THT | 2 Hz flash string, series |
 | SW1 | Tactile switch, 6 mm | THT | Mute — PA3 to GND, diagonal pins 1/4 |
@@ -412,23 +415,30 @@ loop_every_1ms() {
    (The R5 bleed guarantees the 7805's 5 mA minimum load even with the MCU
    blank.) **CN2-4 must read 0 V** — R9/R8 hold the relay path off with the
    MCU blank; if it reads 12 V, Q4 is reversed or R9 is missing.
-2. Program via H1 (UPDI).
-3. Short CN2-5 to +12 V: PA6 node reads ~4.6 V, LED string starts flashing
+2. **Check D1 before programming — unpowered, meter in diode mode.** Black
+   probe on GND, red probe on CN2-4: must read **open**. A ~0.3 V reading
+   means D1 is forward from the relay output to ground and the board will
+   short its own supply and destroy Q4 two seconds into step 4. (Reverse the
+   probes and you should get the ~0.3 V drop.)
+3. Program via H1 (UPDI).
+4. Short CN2-5 to +12 V: PA6 node reads ~4.6 V, LED string starts flashing
    at 2 Hz immediately.
-4. Hold it 2 s: CN2-4 rises to ~11.9 V (12 V minus Q4's V_CE(sat) — relay
+5. Hold it 2 s: CN2-4 rises to ~11.9 V (12 V minus Q4's V_CE(sat) — relay
    engages). With no relay connected first: confirm the voltage; then fit
    the relay and confirm it pulls in.
-5. Hold it 5 s total: piezo sounds. Scope CN1-2: 4 kHz square swinging
+6. Hold it 5 s total: piezo sounds. Scope CN1-2: 4 kHz square swinging
    GND ↔ 12 V (rising edges RC-rounded by R4 × element capacitance —
    normal).
-6. Release CN2-5: piezo and LEDs stop; relay drops after its 10 s minimum
+7. Release CN2-5: piezo and LEDs stop; relay drops after its 10 s minimum
    run. Scope CN2-4 at drop-out with the relay fitted — the negative spike
-   must clamp near −0.4 V. Tens of volts negative means D1 is backwards.
-7. Mute: with the alarm sounding, press SW1 — piezo stops, **LEDs keep
+   must clamp near −0.4 V. Tens of volts negative means D1 is missing.
+   (D1 *backwards* is caught at step 2 — by the time this test runs, a
+   reversed D1 has already taken Q4 out.)
+8. Mute: with the alarm sounding, press SW1 — piezo stops, **LEDs keep
    flashing and the relay stays engaged**. Press again — sound resumes.
    Drop and re-raise the float: the alarm must sound again without touching
    the button.
-8. Hold the float high and power-cycle / reset: **neither the relay nor the
+9. Hold the float high and power-cycle / reset: **neither the relay nor the
    piezo may twitch during reset.** This is the test that matters.
 
 ## 15. License

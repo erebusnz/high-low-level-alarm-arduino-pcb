@@ -1,2 +1,6 @@
 gerber/How-to-order-PCB.txt
 debug.log
+/firmware/build-202
+/firmware/build
+*.lst
+*.map
