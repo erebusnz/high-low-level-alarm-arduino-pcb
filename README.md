@@ -8,8 +8,8 @@ on CN2-4.
 
 This board allows replacement of a failed PCB since the alarm unit retails for $500NZD.
 
-**28 components, 20 BOM lines.** One 8-pin microcontroller (ATtiny202 —
-bench stock) replaces every timer, oscillator and delay circuit on the existing discrete circuit design.
+**28 components, 20 BOM lines.** One 8-pin microcontroller (ATtiny202)
+replaces every timer, oscillator and delay circuit on the existing discrete circuit design.
 
 ![3D render of the replacement PCB](3d-pcb.png)
 
@@ -17,7 +17,7 @@ bench stock) replaces every timer, oscillator and delay circuit on the existing 
 
 | | |
 |---|---|
-| Controller | ATtiny202 (SOIC-8, bench stock) — 5 s delay, 2 Hz flash, 4 kHz tone and relay logic in ~40 lines of firmware |
+| Controller | ATtiny202 (SOIC-8) — 5 s delay, 2 Hz flash, 4 kHz tone and relay logic in ~40 lines of firmware |
 | Supply | 12 VDC on CN2-3 |
 | CN2-4 RELAY_OUT | **Out** — sources +12 V to the external relay coil (coil's far end is grounded in the harness) |
 | Isolation | None — shared ground, same as the original board |
@@ -90,7 +90,7 @@ fit a passive piezo and it's not needed.
 
 ![Schematic](schematic.png)
 
-## 4. Power — L7805CV linear regulator (bench stock)
+## 4. Power — L7805CV linear regulator
 
 The L7805CV gives a solid regulated rail from the same three BOM lines
 (reg + two caps) plus one extra resistor.
@@ -137,8 +137,9 @@ repo):
 - **Pinout (TO-220, facing the label):** 1 = IN, 2 = GND, 3 = OUT. Note
   this is the **78xx** pinout — a 79xx negative regulator has GND on pin 1
   and *will* die here, and the packages look identical.
-- **Clock:** the chip resets to OSC20M ÷ 6 = **3.33 MHz** (datasheet
-  §10.3.3) and there is no reason to raise it.
+- **Clock:** the firmware runs at **20 MHz internal** — megaTinyCore
+  programs the prescaler to match the Tools ▸ Clock selection (the chip
+  does *not* stay at the factory OSC20M ÷ 6 default).
 - **BOD:** with VDD ≥ 4.75 V guaranteed, **BODLEVEL7 (trips ≤ 4.5 V)** is
   usable and recommended — it catches a failing regulator before logic
   misbehaves.
@@ -243,7 +244,7 @@ hence the level shifter. Lifted from the original design's §6:
                          R8 100k│ (base-emitter pull-up)
                                 ├──────────┐
                                 │       ┌──┴──┐ emitter
-                                ├─base──┤ Q4  │  SS8550 (PNP, bench stock)
+                                ├─base──┤ Q4  │  SS8550 (PNP)
                                 │       └──┬──┘
                              R7 2.2k       │ collector
                                 │          ├──────▶ CN2-4  RELAY_OUT
@@ -335,52 +336,76 @@ Programming: **H1, a 4-pin 2.54 mm header — 1 = 5 V, 2 = GND, 3 = UPDI,
 4 = GND.** One wire plus power; any serial adapter with a resistor programs
 it.
 
-## 12. Firmware (reference logic)
+## 12. Firmware
 
-```c
-// 3.33 MHz. 1 ms tick. PA3 pull-up enabled at init.
-uint16_t high_ms = 0;
-uint32_t relay_on_ms = 0;
-bool mute = false;
+The firmware lives in [`firmware/firmware.ino`](firmware/firmware.ino) and
+builds with the Arduino IDE plus
+[megaTinyCore](https://github.com/SpenceKonde/megaTinyCore) (Spence Konde).
+Everything runs from a 1 kHz main loop paced by the RTC-based `millis()` —
+no interrupts, no blocking delays.
 
-loop_every_1ms() {
-    bool float_high = debounce(PA6, 50 /* ms */);
+**Installing the core:** follow the
+[megaTinyCore installation guide](https://github.com/SpenceKonde/megaTinyCore/blob/master/Installation.md)
+— add `http://drazzy.com/package_drazzy.com_index.json` to *File ▸
+Preferences ▸ Additional Boards Manager URLs*, then install **megaTinyCore
+by Spence Konde** from *Tools ▸ Board ▸ Boards Manager*. (Not the
+similarly-named [ATTinyCore](https://github.com/SpenceKonde/ATTinyCore) —
+that core targets the classic ATtiny25/45/85-era parts; the ATtiny202 is a
+modern 0-series tinyAVR and needs megaTinyCore.)
 
-    if (button_press_event(PA3, 20 /* ms debounce */))      // falling edge
-        mute = !mute;
+**Build settings (Tools menu):** Board *ATtiny202/402/204/404*, Chip
+*ATtiny202*, Clock *20 MHz internal*, **Millis timer: RTC** (required — the
+sketch takes over TCA0 for PWM and a compile-time guard rejects any other
+setting; `micros()` is unavailable and unused), BOD *4.5 V* (level 7).
 
-    if (float_high) {
-        if (high_ms < 5000) high_ms++;
-        if ((tick_ms & 0xFF) < 128) PA7 = 1; else PA7 = 0;  // ~2 Hz flash
-        if (high_ms >= 5000 && !mute) piezo_pwm_on();       // TCA0 WO1: 4 kHz, 50% on PA1
-        else piezo_pwm_off();
-        if (high_ms >= 2000) { PA2 = 1; relay_on_ms++; }    // pump on after 2 s stable
-    } else {
-        high_ms = 0;
-        mute = false;   // alarm cleared -> sounder re-arms
-        PA7 = 0;
-        piezo_pwm_off();
-        if (PA2 && relay_on_ms >= 10000) { PA2 = 0; relay_on_ms = 0; }
-        else if (PA2) relay_on_ms++;    // min 10 s run - no chatter
-    }
-}
-```
+**Behaviour:**
 
-- The 4 kHz tone is hardware PWM on PA1 (TCA0 waveform output) — zero CPU
-  load; a timer-ISR bit-bang works identically if preferred.
-- **Relay policy** (firmware constants, tune to the actual pump): energise
-  after the float is stable-high 2 s, minimum run 10 s so slosh can't
-  chatter the contactor. Mute never gates the relay.
-- Enable the watchdog — if the MCU hangs mid-alarm nothing else runs the
-  pump. Consider a maximum-run timer as in the original design.
-- Fits in well under the 2 KB flash.
+| Condition | Action |
+|-----------|--------|
+| Float closes (debounced 50 ms) | LED string flashes at ~2 Hz immediately |
+| Float closed ≥ 2 s | Relay energises (CN2-4 sources +12 V to the pump) |
+| Float closed ≥ 5 s | Piezo alarm sounds (unless muted) |
+| Mute press (debounced 20 ms) | Toggles piezo only — relay and LEDs unaffected |
+| Float opens | LEDs and piezo stop, mute auto-clears; relay honours a 5 s minimum run so slosh can't chatter the contactor |
+
+**Alarm signal** — not a constant tone. The piezo is driven by TCA0 in
+16-bit single-slope mode (WO1 on PA1, 50 % duty) with two layers of
+modulation:
+
+- **Warble:** the frequency sweeps 0.85 × F_RES → 1.15 × F_RES over 150 ms
+  and back (300 ms per cycle), crossing the element's resonant frequency on
+  every sweep. `F_RES` defaults to 4000 Hz (Murata PKM13EPYH4000); measure
+  and adjust for your element. PER endpoints are computed at runtime from
+  `F_CPU`, and PER/CMP1 are double-buffered so sweep updates never glitch
+  the output.
+- **Temporal:** 3000 ms of warbling, then 300 ms of silence. The onset
+  after each silence is much harder to tune out than a continuous tone.
+
+**Safety:**
+
+- All outputs are driven LOW in `setup()` before anything else; R9 keeps
+  the relay off in hardware until then.
+- Watchdog (1 s timeout) resets the MCU if the loop hangs — a hung MCU
+  can't leave the pump energised for more than a second.
+- BOD (4.5 V) stays active in sleep, so a sagging rail causes a clean
+  reset instead of undefined behaviour on the relay pin.
+- Mute never gates the relay, and mute auto-clears when the float drops,
+  so the next alarm event always sounds.
+
+**megaTinyCore workaround:** `setup()` rewrites `RTC.CTRLA` to fix a core
+bug (≤ 2.6.11, [#1288](https://github.com/SpenceKonde/megaTinyCore/issues/1288))
+where the RTC prescaler lands in the wrong bits and `millis()` runs 32×
+fast — every delay shrinks 32× and the 2 Hz flash looks solidly lit.
+Remove once the upstream fix ships.
+
+Fits in well under the 2 KB flash.
 
 ## 13. Bill of materials
 
 | Ref | Value / Part | Package | Note |
 |-----|--------------|---------|------|
-| U1 | L7805CV | TO-220 | Bench stock. 78xx pinout: IN-GND-OUT, tab = GND. **Not** a 7905! |
-| U2 | ATtiny202-SSNR | SOIC-8 | Bench stock |
+| U1 | L7805CV | TO-220 | 78xx pinout: IN-GND-OUT, tab = GND. **Not** a 7905! |
+| U2 | ATtiny202-SSNR | SOIC-8 | |
 | C1, C2 | 1 µF X7R 25 V | 0805 | C1 at U1 IN pin (HF bypass), C2 at MCU VDD pin — see §4 |
 | C3 | 100 nF X7R | 0805 | At PA3 pin — mute-net noise/ESD bypass, see §10 |
 | R1 | 10 kΩ | 0805 | Divider top |
@@ -391,7 +416,7 @@ loop_every_1ms() {
 | R8 | 100 kΩ | 0805 | Q4 base-emitter pull-up |
 | R9 | 10 kΩ | 0805 | Q3 gate pull-down — **relay boot safety** |
 | Q1, Q2, Q3 | 2N7002 | SOT-23 | Q1 LED string, Q2 piezo driver, Q3 relay level shift |
-| Q4 | SS8550, marking "2TY" (bench stock) | SOT-23 | PNP, −25 V / −1.5 A. Pin 1=B, 2=E→12 V, 3=C→CN2-4. Any PNP ≥200 mA/25 V substitutes |
+| Q4 | SS8550, marking "2TY" | SOT-23 | PNP, −25 V / −1.5 A. Pin 1=B, 2=E→12 V, 3=C→CN2-4. Any PNP ≥200 mA/25 V substitutes |
 | D1 | SS14 | SMA | Relay coil flyback. **Cathode band toward CN2-4** — reversed, it shorts the 12 V rail and kills Q4 |
 | LED1 | Red 5 mm (XL-502SURC) | THT | Power indicator — on 12 V, see §6 |
 | LED2–LED5 | Red 5 mm ×4 | THT | 2 Hz flash string, series |
@@ -409,7 +434,39 @@ loop_every_1ms() {
 
 ![Bottom PCB](bottom-pcb.png)
 
-## 14. Bring-up checklist
+## 14. Build
+
+### Soldering order
+
+Lowest profile first, so the board sits flat for each stage:
+
+1. **U2 ATtiny202 (SOIC-8)** — the finest-pitch part goes first, with the
+   board empty and full access. Tack one corner pin, check alignment, then
+   solder the rest.
+2. **0805 passives** — R1–R9, C1–C3. No orientation to worry about.
+3. **SOT-23 transistors Q1–Q4** — all four share the package but **Q4 is
+   the odd one out**: Q1–Q3 are 2N7002, Q4 is the SS8550 PNP (marking
+   "2TY"). Swap one and the relay stage dies — sort them before soldering.
+4. **D1 SS14 (SMA)** — **cathode band toward CN2-4.** Reversed, it shorts
+   the 12 V rail and kills Q4 the first time the relay engages; the
+   orientation is meter-checked in bring-up step 2 before power ever hits
+   the board.
+5. **THT, short to tall:** H1 programming header and SW1, then LED1–LED5
+   (long leg = anode; LED2–5 are a series string, so one reversed LED
+   kills the whole chain), then U1 L7805 (TO-220 — check it's a 78xx, not
+   a 79xx; tab = GND), and finally CN1 and CN2 friction-lock connectors
+   (keying tabs face the board edge).
+
+Clean flux off the SW1/PA3 and UPDI areas — high-impedance nodes dislike
+residue.
+
+### Build photos
+
+![Assembled board, top](build-top.jpeg)
+
+![Assembled board, bottom](build-bottom.jpeg)
+
+### Bring-up checklist
 
 1. 12 V on CN2-3, nothing programmed: LED1 lights, VDD reads 4.8–5.2 V.
    (The R5 bleed guarantees the 7805's 5 mA minimum load even with the MCU
@@ -426,10 +483,10 @@ loop_every_1ms() {
 5. Hold it 2 s: CN2-4 rises to ~11.9 V (12 V minus Q4's V_CE(sat) — relay
    engages). With no relay connected first: confirm the voltage; then fit
    the relay and confirm it pulls in.
-6. Hold it 5 s total: piezo sounds. Scope CN1-2: 4 kHz square swinging
-   GND ↔ 12 V (rising edges RC-rounded by R4 × element capacitance —
-   normal).
-7. Release CN2-5: piezo and LEDs stop; relay drops after its 10 s minimum
+6. Hold it 5 s total: piezo sounds — a warble sweeping ~3.4–4.6 kHz with a
+   300 ms pause every 3 s. Scope CN1-2: square wave swinging GND ↔ 12 V
+   (rising edges RC-rounded by R4 × element capacitance — normal).
+7. Release CN2-5: piezo and LEDs stop; relay drops after its 5 s minimum
    run. Scope CN2-4 at drop-out with the relay fitted — the negative spike
    must clamp near −0.4 V. Tens of volts negative means D1 is missing.
    (D1 *backwards* is caught at step 2 — by the time this test runs, a
