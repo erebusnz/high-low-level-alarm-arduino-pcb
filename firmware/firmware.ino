@@ -2,7 +2,8 @@
  * Replacement PCB for Wallace High Low Level Alarm (1950610)
  * Firmware for ATtiny202 — megaTinyCore (Spence Konde)
  *
- * Clock:   3.33 MHz (OSC20M ÷ 6, factory default)
+ * Clock:   20 MHz (megaTinyCore sets the prescaler per the Tools menu —
+ *          CLK_PER = F_CPU, not the factory ÷6 default)
  * BOD:     level 7 (~4.5 V — set via fuses in Tools menu; code keeps it on in
  *          sleep so WDT reset is clean during brownout)
  * WDT:     1 s timeout
@@ -12,8 +13,8 @@
  * ═══════════════════════════════════════════════════════════════════════════════
  *   Board:                "ATtiny202/402/204/404"
  *   Chip:                 "ATtiny202" (2 KB flash, SOIC-8)
- *   Clock:                "20 MHz internal" (OSC20M ÷ 6 → 3.33 MHz at init;
- *                          this sketch does not raise the clock)
+ *   Clock:                "20 MHz internal" (the core programs the prescaler
+ *                          to this selection — CLK_PER = 20 MHz)
  *   Millis timer:         "RTC"  ← REQUIRED — TCA0 is taken over for PWM
  *   BOD:                  "4.5 V" (level 7)
  *   Attach:               "UPDI (Microchip) — 4.7k + Schottky"
@@ -154,7 +155,13 @@
 //  TCA0 PER values — computed at runtime from F_RES and F_CPU
 // ══════════════════════════════════════════════════════════════════════════════
 //
-// CLK_PER = 20 MHz / 6 = 3,333,333 Hz  (factory default OSC20M ÷ 6)
+// CLK_PER = F_CPU. NOTE: megaTinyCore's init() reprograms the main clock
+// prescaler to match the Tools ▸ Clock menu selection — the chip does NOT
+// stay at the factory OSC20M ÷ 6 default. With "20 MHz internal" selected,
+// CLK_PER is a full 20 MHz. Hardcoding 3,333,333 here made every PWM
+// frequency 6× too high (the 4 kHz warble came out at ~20–28 kHz —
+// ultrasonic, hence "no sound"). Use the core's F_CPU macro, which always
+// matches the menu selection.
 // PER = F_CPU / freq − 1
 //
 // per_low  is the PER value for F_LOW  (larger  — lower frequency)
@@ -164,7 +171,7 @@
 // PER and CMPn are double-buffered in TCA0 single-slope mode — writes take
 // effect atomically on the next counter wrap, so no glitch is possible.
 
-#define F_CPU_HZ           3333333UL
+#define F_CPU_HZ           ((uint32_t)F_CPU)
 
 // ══════════════════════════════════════════════════════════════════════════════
 //  State
@@ -220,8 +227,8 @@ static void piezo_pwm_init(void) {
     //   F_LOW  → longest period  → largest  PER = F_CPU / F_LOW  − 1
     //   F_HIGH → shortest period → smallest PER = F_CPU / F_HIGH − 1
     //
-    // These are uint16_t: at 3.33 MHz and F_LOW ≥ 2550 Hz (0.85 × 3000),
-    // PER ≤ 1306, well within range.
+    // These are uint16_t: at 20 MHz and F_LOW ≥ 2550 Hz (0.85 × 3000),
+    // PER ≤ 7842, well within range.
 
     per_low  = F_CPU_HZ / F_LOW  - 1;
     per_high = F_CPU_HZ / F_HIGH - 1;
@@ -336,6 +343,17 @@ static bool button_press_event(uint8_t pin, uint8_t threshold) {
 // ══════════════════════════════════════════════════════════════════════════════
 
 void setup() {
+
+    // ── Fix RTC millis prescaler ────────────────────────────────────────────
+    //  megaTinyCore ≤ 2.6.11 bug (SpenceKonde/megaTinyCore#1288): timers.h
+    //  defines _RTC_PRESCALE_VALUE as 0x05 — the DIV32 field value unshifted —
+    //  so init_millis() lands it in CTRLA bits 0/2 instead of the PRESCALER
+    //  field (bits 6:3). The RTC then runs at DIV1 (32.768 kHz) and millis()
+    //  counts 32× fast: every delay in this sketch shrinks 32×, and the 2 Hz
+    //  LED flash becomes 62.5 Hz (looks solidly lit). Rewrite CTRLA with the
+    //  properly shifted DIV32 group code. Remove once PR #1289 ships.
+    while (RTC.STATUS & RTC_CTRLABUSY_bm);
+    RTC.CTRLA = RTC_RUNSTDBY_bm | RTC_PRESCALER_DIV32_gc | RTC_RTCEN_bm;
 
     // ── GPIO ────────────────────────────────────────────────────────────────
     //  Safe state first: all outputs LOW before they become outputs.

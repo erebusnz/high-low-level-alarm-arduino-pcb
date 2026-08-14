@@ -4,3 +4,4 @@ debug.log
 /firmware/build
 *.lst
 *.map
+/high-low-level-alarm-pcb_backup
