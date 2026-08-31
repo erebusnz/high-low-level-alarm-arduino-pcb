@@ -1,6 +1,8 @@
 # Replacement PCB for Wallace High Low Level Alarm (1950610)
 
-[![High/Low Level Alarm](https://dlmwallace.co.nz/cdn/shop/files/HighLowLevelAlarm.png?v=1739752295)](https://dlmwallace.co.nz/products/high-low-level-alarm)
+![High/Low Level Alarm unit](alarm-unit.jpg)
+
+![High/Low Level Alarm unit opened, showing internals](alarm-unit-inside.jpg)
 
 Basic Arduino controlled replacement PCB for Wallace High Low Level Alarm (1950610): watch FLOAT_SW, flash four LEDs at 2 Hz while it is high, sound
 a 4 kHz piezo once it has been high for 5 seconds, and drive the pump relay
